@@ -49,7 +49,6 @@ where
         
         match recv.read_message() {
             ReadMessageResult::Message(msg) => {
-                println!("{}", msg);
                 let (tx, rx) = mpsc::channel();
 
                 let reply: Option<Reply> = match msg.parse::<Command>() {
