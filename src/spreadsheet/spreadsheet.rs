@@ -136,7 +136,7 @@ fn string_arg_to_cell_arg(arg: String, spreadsheet: &HashMap<CellIdentifier, Cel
         let cell_id: CellIdentifier = arg.parse().unwrap();
         let value = match spreadsheet.get(&cell_id) {
             Some(cell_value) => cell_value.clone(),
-            None => CellValue::Error("invalid cell".to_string()),
+            None => CellValue::None,
         };
         return CellArgument::Value(value);
     }
@@ -162,7 +162,7 @@ fn create_cell_arg_vec(
             let cell_id = CellIdentifier { col, row };
             let cell_value = match spreadsheet.get(&cell_id) {
                 Some(cell_value) => cell_value.clone(),
-                None => CellValue::Error("CellExprEvalError".to_string()),
+                None => CellValue::None,
             };
             result.push(cell_value);
         }
@@ -192,7 +192,7 @@ fn create_cell_arg_matrix(
             let cell_id = CellIdentifier { col, row };
             let cell_value = match spreadsheet.get(&cell_id) {
                 Some(cell_value) => cell_value.clone(),
-                None => CellValue::Error("CellExprEvalError".to_string()),
+                None => CellValue::None,
             };
             inner_res.push(cell_value);
         }
