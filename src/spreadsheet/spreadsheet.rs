@@ -89,6 +89,7 @@ impl SpreadSheetHandler {
         let arguments = cell_expr.find_variable_names();
         let sheet = self.spread_sheet.read().unwrap();
         let arg_map = create_arg_map(arguments, &sheet);
+        drop(sheet);
         cell_expr.evaluate(&arg_map)
     }
 }
