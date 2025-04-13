@@ -9,7 +9,6 @@ use rsheet_lib::connect::{
 use rsheet_lib::replies::Reply;
 use spreadsheet::spreadsheet::SpreadSheetHandler;
 
-use std::cell::Cell;
 use std::error::Error;
 use std::sync::Arc;
 

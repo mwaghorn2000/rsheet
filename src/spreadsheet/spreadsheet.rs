@@ -1,14 +1,12 @@
 use std::{
-    any,
     collections::HashMap,
-    result,
     sync::{Arc, RwLock},
 };
 
 use regex::Regex;
 use rsheet_lib::{
     cell_expr::{CellArgument, CellExpr, CellExprEvalError},
-    cell_value::{self, CellValue},
+    cell_value::CellValue,
     cells::{column_name_to_number, column_number_to_name},
     command::{CellIdentifier, Command},
     replies::Reply,
