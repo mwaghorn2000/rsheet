@@ -10,7 +10,7 @@ use rsheet_lib::replies::Reply;
 use spreadsheet::spreadsheet::SpreadSheetHandler;
 
 use std::error::Error;
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::Arc;
 use std::thread;
 
 use log::info;
@@ -20,15 +20,13 @@ where
     M: Manager,
 {
     let spreadsheet = Arc::new(SpreadSheetHandler::new());
-    let command_lock = Arc::new(Mutex::new(()));
     let mut connections = Vec::new();
     loop {
         match manager.accept_new_connection() {
             Connection::NewConnection { reader, writer } => {
                 let spreadsheet_clone = Arc::clone(&spreadsheet);
-                let command_lock_clone = Arc::clone(&command_lock);
                 connections.push(std::thread::spawn(move || {
-                    handle_connection(reader, writer, spreadsheet_clone, command_lock_clone);
+                    handle_connection(reader, writer, spreadsheet_clone);
                 }));
             }
             Connection::NoMoreConnections => break,
@@ -41,12 +39,8 @@ where
 
     Ok(())
 }
-fn handle_connection<R, W>(
-    mut recv: R,
-    mut send: W,
-    spreadsheet: Arc<SpreadSheetHandler>,
-    command_lock: Arc<Mutex<()>>
-) where
+fn handle_connection<R, W>(mut recv: R, mut send: W, spreadsheet: Arc<SpreadSheetHandler>)
+where
     R: Reader,
     W: Writer,
 {
@@ -54,36 +48,22 @@ fn handle_connection<R, W>(
         info!("Just got message from thread {:?}", thread::current().id());
         match recv.read_message() {
             ReadMessageResult::Message(msg) => {
-                let _guard = command_lock.lock().unwrap();
-                let (tx, rx) = mpsc::channel();
-
                 let reply: Option<Reply> = match msg.parse::<Command>() {
-                    Ok(command) => {
-                        if let Err(e) = spreadsheet.send(command, tx) {
-                            Some(Reply::Error(format!(
-                                "Failed to send command to spreadsheet: {}",
-                                e
-                            )))
-                        } else {
-                            let response = rx.recv().unwrap_or(Some(Reply::Error(
-                                "No response from spreadsheet".to_string(),
-                            )));
-
-                            response
-                        }
-                    }
+                    Ok(command) => spreadsheet.send(command),
                     Err(e) => Some(Reply::Error(e)),
                 };
 
-                if let Some(reply) = reply {
-                    match send.write_message(reply) {
-                        WriteMessageResult::Ok => {}
-                        WriteMessageResult::ConnectionClosed => {
-                            break;
-                        }
-                        WriteMessageResult::Err(_) => {
-                            return;
-                        }
+                if reply.is_none() {
+                    continue;
+                }
+
+                match send.write_message(reply.unwrap()) {
+                    WriteMessageResult::Ok => {}
+                    WriteMessageResult::ConnectionClosed => {
+                        break;
+                    }
+                    WriteMessageResult::Err(_) => {
+                        return;
                     }
                 }
             }

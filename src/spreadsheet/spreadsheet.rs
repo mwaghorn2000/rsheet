@@ -1,7 +1,8 @@
 use std::{
     collections::HashMap,
-    sync::mpsc::{self, SendError, Sender},
-    thread::{self},
+    sync::{
+        Arc, RwLock,
+    },
 };
 
 use regex::Regex;
@@ -29,15 +30,10 @@ impl Spreadsheet {
         }
     }
 
-    fn insert(&mut self, cell_identifier: &CellIdentifier, cell_expr: &str) {
-        let cell_expr = CellExpr::new(cell_expr);
-        let arguments = cell_expr.find_variable_names();
-        let arg_map = create_arg_map(arguments, self);
-        let result = cell_expr.evaluate(&arg_map);
-
-        match result {
-            Ok(cell_value) => {
-                self.spreadsheet.insert(*cell_identifier, cell_value);
+    fn insert(&mut self, cell_identifier: &CellIdentifier, cell_value: Result<CellValue, CellExprEvalError>) {
+        match cell_value {
+            Ok(v) => {
+                self.spreadsheet.insert(*cell_identifier, v);
             }
             Err(CellExprEvalError::VariableDependsOnError) => {
                 self.spreadsheet.insert(
@@ -62,57 +58,52 @@ impl Spreadsheet {
             _ => Ok(value),
         }
     }
+
+    fn evaluate(&self, cell_expr: String) -> Result<CellValue, CellExprEvalError> {
+        let cell_expr = CellExpr::new(&cell_expr);
+        let arguments = cell_expr.find_variable_names();
+        let arg_map = create_arg_map(arguments, self);
+        cell_expr.evaluate(&arg_map)
+    }
 }
 
 pub struct SpreadSheetHandler {
-    command_tx: Sender<(Command, Sender<Option<Reply>>)>,
+    spread_sheet: Arc<RwLock<Spreadsheet>>,
 }
 
 impl SpreadSheetHandler {
     pub fn new() -> Self {
-        let (tx, rx) = mpsc::channel::<(Command, Sender<Option<Reply>>)>();
-        thread::spawn(move || {
-            let mut spreadsheet = Spreadsheet::new();
-
-            for (command, responder) in rx {
-                match command {
-                    Command::Get { cell_identifier } => {
-                        let value = spreadsheet.find(&cell_identifier);
-                        match value {
-                            Ok(v) => responder
-                                .send(Some(Reply::Value(format_cell_name(&cell_identifier), v)))
-                                .unwrap(),
-                            Err(e) => match e {
-                                CellExprEvalError::VariableDependsOnError => {
-                                    responder
-                                        .send(Some(Reply::Error(
-                                            "Cell depends on an Error Cell".to_string(),
-                                        )))
-                                        .unwrap();
-                                }
-                            },
-                        }
-                    }
-                    Command::Set {
-                        cell_identifier,
-                        cell_expr,
-                    } => {
-                        spreadsheet.insert(&cell_identifier, &cell_expr);
-                        let _ = responder.send(None);
-                    }
-                }
-            }
-        });
-
-        SpreadSheetHandler { command_tx: tx }
+        SpreadSheetHandler {
+            spread_sheet: Arc::new(RwLock::new(Spreadsheet::new())),
+        }
     }
 
-    pub fn send(
-        &self,
-        cmd: Command,
-        sender: Sender<Option<Reply>>,
-    ) -> Result<(), SendError<(Command, Sender<Option<Reply>>)>> {
-        self.command_tx.send((cmd, sender))
+    pub fn send(&self, cmd: Command) -> Option<Reply> {
+        match cmd {
+            Command::Get { cell_identifier } => {
+                let sheet = self.spread_sheet.read().unwrap();
+                let value = sheet.find(&cell_identifier);
+                match value {
+                    Ok(v) => Some(Reply::Value(format_cell_name(&cell_identifier), v)),
+                    Err(e) => match e {
+                        CellExprEvalError::VariableDependsOnError => {
+                            Some(Reply::Error("Cell depends on an Error Cell".to_string()))
+                        }
+                    },
+                }
+            }
+            Command::Set {
+                cell_identifier,
+                cell_expr,
+            } => {
+                let sheet = self.spread_sheet.read().unwrap();
+                let cell_value = sheet.evaluate(cell_expr);
+                drop(sheet);
+                let mut sheet = self.spread_sheet.write().unwrap();
+                sheet.insert(&cell_identifier, cell_value);
+                None
+            }
+        }
     }
 }
 
