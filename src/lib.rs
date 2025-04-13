@@ -58,7 +58,7 @@ where
                 }
 
                 match send.write_message(reply.unwrap()) {
-                    WriteMessageResult::Ok => {println!("Sent from {:?}", thread::current().id())}
+                    WriteMessageResult::Ok => {}
                     WriteMessageResult::ConnectionClosed => {
                         break;
                     }
