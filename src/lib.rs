@@ -10,7 +10,7 @@ use rsheet_lib::replies::Reply;
 use spreadsheet::spreadsheet::SpreadSheetHandler;
 
 use std::error::Error;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread;
 
 use log::info;
@@ -58,7 +58,7 @@ where
                 }
 
                 match send.write_message(reply.unwrap()) {
-                    WriteMessageResult::Ok => {}
+                    WriteMessageResult::Ok => {println!("Sent from {:?}", thread::current().id())}
                     WriteMessageResult::ConnectionClosed => {
                         break;
                     }
