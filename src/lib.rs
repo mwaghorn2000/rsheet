@@ -11,6 +11,7 @@ use spreadsheet::spreadsheet::SpreadSheetHandler;
 
 use std::error::Error;
 use std::sync::{mpsc, Arc};
+use std::thread;
 
 use log::info;
 
@@ -50,9 +51,10 @@ where
         match recv.read_message() {
             ReadMessageResult::Message(msg) => {
                 let (tx, rx) = mpsc::channel();
-
+                
                 let reply: Option<Reply> = match msg.parse::<Command>() {
                     Ok(command) => {
+                        println!("Sender {:?} sent command: {}", thread::current().id(), msg);
                         if let Err(e) = spreadsheet.send(command, tx) {
                             Some(Reply::Error(format!("Failed to send command to spreadsheet: {}", e)))
                         } else {
