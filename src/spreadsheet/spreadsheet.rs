@@ -96,10 +96,8 @@ impl SpreadSheetHandler {
                 cell_identifier,
                 cell_expr,
             } => {
-                let sheet = self.spread_sheet.read().unwrap();
-                let cell_value = sheet.evaluate(cell_expr);
-                drop(sheet);
                 let mut sheet = self.spread_sheet.write().unwrap();
+                let cell_value = sheet.evaluate(cell_expr);
                 sheet.insert(&cell_identifier, cell_value);
                 None
             }
