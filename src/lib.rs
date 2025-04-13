@@ -10,7 +10,7 @@ use rsheet_lib::replies::Reply;
 use spreadsheet::spreadsheet::SpreadSheetHandler;
 
 use std::error::Error;
-use std::sync::Arc;
+use std::sync::{mpsc, Arc};
 
 use log::info;
 
@@ -27,10 +27,8 @@ where
                 connections.push(std::thread::spawn(move || {
                     handle_connection(reader, writer, spreadsheet_clone)
                 }));
-            },
-            Connection::NoMoreConnections => {
-                break
             }
+            Connection::NoMoreConnections => break,
         };
     }
 
@@ -48,45 +46,34 @@ where
 {
     loop {
         info!("Just got message");
+        
         match recv.read_message() {
             ReadMessageResult::Message(msg) => {
+                let (tx, rx) = mpsc::channel();
+
                 let reply: Option<Reply> = match msg.parse::<Command>() {
-                    Ok(command) => spreadsheet.send(command),
+                    Ok(command) => {
+                        if let Err(e) = spreadsheet.send(command, tx) {
+                            Some(Reply::Error(format!("Failed to send command to spreadsheet: {}", e)))
+                        } else {
+                            rx.recv().unwrap_or(Some(Reply::Error("No response from spreadsheet".to_string())))
+                        }
+                    }
                     Err(e) => Some(Reply::Error(e)),
                 };
 
-                // Skip none replies from set commands. Internal state is changed, but
-                // we dont need to report this until a get is called.
                 if reply.is_none() {
                     continue;
                 }
 
                 match send.write_message(reply.unwrap()) {
-                    WriteMessageResult::Ok => {
-                        // Message successfully sent, continue.
-                    }
-                    WriteMessageResult::ConnectionClosed => {
-                        // The connection was closed. This is not an error, but
-                        // should terminate this connection.
-                        break;
-                    }
-                    WriteMessageResult::Err(_) => {
-                        // An unexpected error was encountered.
-                        // Exit the thread
-                        return;
-                    }
+                    WriteMessageResult::Ok => {}
+                    WriteMessageResult::ConnectionClosed => break,
+                    WriteMessageResult::Err(_) => return,
                 }
             }
-            ReadMessageResult::ConnectionClosed => {
-                // The connection was closed. This is not an error, but
-                // should terminate this connection.
-                break;
-            }
-            ReadMessageResult::Err(_) => {
-                // An unexpected error was encountered.
-                // Exit the thread
-                return;
-            }
+            ReadMessageResult::ConnectionClosed => break,
+            ReadMessageResult::Err(_) => return,
         }
     }
 }

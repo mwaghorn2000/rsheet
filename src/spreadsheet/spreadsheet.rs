@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
-    sync::{Arc, RwLock},
+    sync::mpsc::{self, SendError, Sender},
+    thread::{self},
 };
 
 use regex::Regex;
@@ -37,11 +38,13 @@ impl Spreadsheet {
         match result {
             Ok(cell_value) => {
                 self.spreadsheet.insert(*cell_identifier, cell_value);
-            },
+            }
             Err(CellExprEvalError::VariableDependsOnError) => {
-                self.spreadsheet
-                    .insert(*cell_identifier, CellValue::Error(DEPENDANCY_ERROR.to_string()));
-            },
+                self.spreadsheet.insert(
+                    *cell_identifier,
+                    CellValue::Error(DEPENDANCY_ERROR.to_string()),
+                );
+            }
         }
     }
 
@@ -62,39 +65,54 @@ impl Spreadsheet {
 }
 
 pub struct SpreadSheetHandler {
-    sheet: Arc<RwLock<Spreadsheet>>,
+    command_tx: Sender<(Command, Sender<Option<Reply>>)>,
 }
 
 impl SpreadSheetHandler {
     pub fn new() -> Self {
-        SpreadSheetHandler {
-            sheet: Arc::new(RwLock::new(Spreadsheet::new())),
-        }
-    }
+        let (tx, rx) = mpsc::channel::<(Command, Sender<Option<Reply>>)>();
+        thread::spawn(move || {
+            let mut spreadsheet = Spreadsheet::new();
 
-    pub fn send(&self, cmd: Command) -> Option<Reply> {
-        match cmd {
-            Command::Get { cell_identifier } => {
-                let sheet = self.sheet.read().unwrap();
-                let value = sheet.find(&cell_identifier);
-                match value {
-                    Ok(v) => Some(Reply::Value(format_cell_name(&cell_identifier), v)),
-                    Err(e) => match e {
-                        CellExprEvalError::VariableDependsOnError => {
-                            Some(Reply::Error("Cell depends on an Error Cell".to_string()))
+            for (command, responder) in rx {
+                match command {
+                    Command::Get { cell_identifier } => {
+                        let value = spreadsheet.find(&cell_identifier);
+                        match value {
+                            Ok(v) => responder
+                                .send(Some(Reply::Value(format_cell_name(&cell_identifier), v)))
+                                .unwrap(),
+                            Err(e) => match e {
+                                CellExprEvalError::VariableDependsOnError => {
+                                    responder
+                                        .send(Some(Reply::Error(
+                                            "Cell depends on an Error Cell".to_string(),
+                                        )))
+                                        .unwrap();
+                                }
+                            },
                         }
-                    },
+                    }
+                    Command::Set {
+                        cell_identifier,
+                        cell_expr,
+                    } => {
+                        spreadsheet.insert(&cell_identifier, &cell_expr);
+                        let _ = responder.send(None);
+                    }
                 }
             }
-            Command::Set {
-                cell_identifier,
-                cell_expr,
-            } => {
-                let mut sheet = self.sheet.write().unwrap();
-                sheet.insert(&cell_identifier, &cell_expr);
-                None
-            }
-        }
+        });
+
+        SpreadSheetHandler { command_tx: tx }
+    }
+
+    pub fn send(
+        &self,
+        cmd: Command,
+        sender: Sender<Option<Reply>>,
+    ) -> Result<(), SendError<(Command, Sender<Option<Reply>>)>> {
+        self.command_tx.send((cmd, sender))
     }
 }
 
