@@ -10,7 +10,7 @@ use rsheet_lib::replies::Reply;
 use spreadsheet::spreadsheet::SpreadSheetHandler;
 
 use std::error::Error;
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{mpsc, Arc};
 use std::thread;
 
 use log::info;
@@ -24,11 +24,9 @@ where
     loop {
         match manager.accept_new_connection() {
             Connection::NewConnection { reader, writer } => {
-                let writer = Arc::new(Mutex::new(writer));
-                let writer_clone = Arc::clone(&writer);
                 let spreadsheet_clone = Arc::clone(&spreadsheet);
                 connections.push(std::thread::spawn(move || {
-                    handle_connection(reader, writer_clone, spreadsheet_clone)
+                    handle_connection(reader, writer, spreadsheet_clone)
                 }));
             }
             Connection::NoMoreConnections => break,
@@ -43,7 +41,7 @@ where
 }
 fn handle_connection<R, W>(
     mut recv: R,
-    mut send: Arc<Mutex<W>>,
+    mut send: W,
     spreadsheet: Arc<SpreadSheetHandler>,
 ) where
     R: Reader,
@@ -74,7 +72,7 @@ fn handle_connection<R, W>(
                 };
 
                 if let Some(reply) = reply {
-                    match send.lock().unwrap().write_message(reply) {
+                    match send.write_message(reply) {
                         WriteMessageResult::Ok => {}
                         WriteMessageResult::ConnectionClosed => {
                             break;
