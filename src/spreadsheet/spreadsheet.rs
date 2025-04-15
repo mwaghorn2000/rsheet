@@ -1,8 +1,8 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::{
-        Arc, RwLock,
-    },
+        mpsc::{self, Sender}, Arc, Mutex, RwLock
+    }, thread,
 };
 
 use regex::Regex;
@@ -20,13 +20,57 @@ const DEPENDANCY_ERROR: &str = "Cell relies on an Error Value";
 
 pub struct SpreadSheetHandler {
     spread_sheet: Arc<RwLock<HashMap<CellIdentifier, CellValue>>>,
+    dependancy_graph: Arc<RwLock<HashMap<CellIdentifier, HashSet<CellIdentifier>>>>,
+    cell_exprs: Arc<RwLock<HashMap<CellIdentifier, String>>>,
+    dependancy_sender: Arc<Mutex<Option<Sender<(CellIdentifier, u64)>>>>,
+    version_map: Arc<RwLock<HashMap<CellIdentifier, u64>>>,
 }
 
 impl SpreadSheetHandler {
     pub fn new() -> Self {
         SpreadSheetHandler {
             spread_sheet: Arc::new(RwLock::new(HashMap::new())),
+            dependancy_graph: Arc::new(RwLock::new(HashMap::new())),
+            cell_exprs: Arc::new(RwLock::new(HashMap::new())),
+            dependancy_sender: Arc::new(Mutex::new(None)),
+            version_map: Arc::new(RwLock::new(HashMap::new())),
         }
+    }
+
+    /// Starts a dependancy thread which will handle all dependancies through the 
+    /// dependancy_sender. Only one thread may be spawned.
+    pub fn start_dependancy_thread(this: Arc<Self>) {
+        let thread_exists = {
+            let guard = this.dependancy_sender.lock().unwrap();
+            guard.is_some()
+        };
+
+        if thread_exists { return; }
+
+        let (tx, rx) = mpsc::channel::<(CellIdentifier, u64)>();
+        {
+            let mut sender = this.dependancy_sender.lock().unwrap();
+            *sender = Some(tx);
+        }
+        
+        let spread_sheet_clone = Arc::clone(&this);
+
+        thread::spawn(move || {
+            for (cell, version) in rx {
+                let expr = {
+                    let cell_expr = spread_sheet_clone.cell_exprs.read().unwrap();
+                    cell_expr.get(&cell).unwrap().clone()
+                };
+        
+                let value = spread_sheet_clone.evaluate(expr, &cell);
+
+                let versions = this.version_map.read().unwrap();
+                let curr_version = *versions.get(&cell).unwrap_or(&0);
+                if curr_version == version {
+                    this.insert(&cell, value);
+                }
+            }
+        });
     }
 
     pub fn send(&self, cmd: Command) -> Option<Reply> {
@@ -46,8 +90,25 @@ impl SpreadSheetHandler {
                 cell_identifier,
                 cell_expr,
             } => {
-                let cell_value = self.evaluate(cell_expr);
-                self.insert(&cell_identifier, cell_value);
+                let expected_version = {
+                    let mut versions = self.version_map.write().unwrap();
+                    let v = versions.entry(cell_identifier.clone()).or_insert(0);
+                    *v += 1;
+                    *v
+                };
+
+                let cell_value = self.evaluate(cell_expr.clone(), &cell_identifier);
+
+                let versions = self.version_map.read().unwrap();
+                let curr_version = *versions.get(&cell_identifier).unwrap_or(&0);
+                if curr_version == expected_version {
+                    {
+                        let mut exprs = self.cell_exprs.write().unwrap();
+                        exprs.insert(cell_identifier, cell_expr);
+                    }
+                    self.insert(&cell_identifier, cell_value);
+                }
+
                 None
             }
         }
@@ -67,6 +128,21 @@ impl SpreadSheetHandler {
                 );
             }
         }
+
+        if let Some(dependancies) = self.dependancy_graph.read().unwrap().get(cell_identifier) {
+            for d in dependancies {
+                let version = self.version_map.read().unwrap().get(&d).unwrap_or(&0).clone();
+                let sender = {
+                    let guard = self.dependancy_sender.lock().unwrap();
+                    guard.clone()
+                };
+
+                if let Some(sender) = sender {
+                    let _ = sender.send((d.clone(), version.clone()));
+                }
+            }
+        }
+        
     }
 
     fn find(&self, cell_identifier: &CellIdentifier) -> Result<CellValue, CellExprEvalError> {
@@ -84,12 +160,27 @@ impl SpreadSheetHandler {
         }
     }
 
-    fn evaluate(&self, cell_expr: String) -> Result<CellValue, CellExprEvalError> {
+    fn evaluate(&self, cell_expr: String, cell: &CellIdentifier) -> Result<CellValue, CellExprEvalError> {
         let cell_expr = CellExpr::new(&cell_expr);
         let arguments = cell_expr.find_variable_names();
         let sheet = self.spread_sheet.read().unwrap();
-        let arg_map = create_arg_map(arguments, &sheet);
+        let arg_map = create_arg_map(arguments.clone(), &sheet);
         drop(sheet);
+
+        {
+            let mut dg = self.dependancy_graph.write().unwrap();
+
+            for dependants in dg.values_mut() {
+                dependants.remove(cell);
+            }
+
+            for arg in arguments {
+                for id in extract_cell_identifiers_from_arg(arg) {
+                    dg.entry(id).or_insert_with(HashSet::new).insert(*cell);
+                }
+            }
+        }
+
         cell_expr.evaluate(&arg_map)
     }
 }
@@ -201,4 +292,84 @@ fn create_cell_arg_matrix(
     }
 
     CellArgument::Matrix(result)
+}
+
+fn extract_cell_identifiers_from_arg(arg: String) -> Vec<CellIdentifier> {
+    if arg.contains("_") {
+        let re = Regex::new(r"([A-Z]+)([1-9][0-9]*)_([A-Z]+)([1-9][0-9]*)").unwrap();
+        if let Some(captures) = re.captures(arg.as_str()) {
+            let first_col = &captures[1];
+            let first_row = &captures[2];
+            let second_col = &captures[3];
+            let second_row = &captures[4];
+
+            if first_col == second_col || first_row == second_row {
+                return get_cell_identifier_vector(first_col, first_row, second_col, second_row);
+            } else {
+                return get_cell_identifier_matrix(first_col, first_row, second_col, second_row)
+                    .into_iter()
+                    .flatten()
+                    .collect();
+            }
+        } else {
+            panic!("Invalid range format in argument: {}", arg);
+        }
+    } else {
+        let cell_id: CellIdentifier = arg.parse().unwrap();
+        vec![cell_id]
+    }
+}
+
+fn get_cell_identifier_matrix(
+    first_col: &str,
+    first_row: &str,
+    second_col: &str,
+    second_row: &str,
+) -> Vec<Vec<CellIdentifier>> {
+    let mut result: Vec<Vec<CellIdentifier>> = Vec::new();
+
+    let start_col = column_name_to_number(first_col);
+    let finish_col = column_name_to_number(second_col);
+    let start_row = first_row.parse::<u32>().unwrap();
+    let finish_row = second_row.parse::<u32>().unwrap();
+
+    for row in start_row..=finish_row {
+        let mut inner_row: Vec<CellIdentifier> = Vec::new();
+        let row_index = row - 1;
+        for col in start_col..=finish_col {
+            inner_row.push(CellIdentifier {
+                col,
+                row: row_index,
+            });
+        }
+        result.push(inner_row);
+    }
+
+    result
+}
+
+fn get_cell_identifier_vector(
+    first_col: &str,
+    first_row: &str,
+    second_col: &str,
+    second_row: &str,
+) -> Vec<CellIdentifier> {
+    let mut result: Vec<CellIdentifier> = Vec::new();
+
+    let start_col = column_name_to_number(first_col);
+    let finish_col = column_name_to_number(second_col);
+    let start_row = first_row.parse::<u32>().unwrap();
+    let finish_row = second_row.parse::<u32>().unwrap();
+
+    for col in start_col..=finish_col {
+        for row in start_row..=finish_row {
+            let row_index = row - 1;
+            result.push(CellIdentifier {
+                col,
+                row: row_index,
+            });
+        }
+    }
+
+    result
 }

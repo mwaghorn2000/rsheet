@@ -10,7 +10,7 @@ use rsheet_lib::replies::Reply;
 use spreadsheet::spreadsheet::SpreadSheetHandler;
 
 use std::error::Error;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::thread;
 
 use log::info;
@@ -20,6 +20,9 @@ where
     M: Manager,
 {
     let spreadsheet = Arc::new(SpreadSheetHandler::new());
+    let spreadsheet_clone = Arc::clone(&spreadsheet);
+    SpreadSheetHandler::start_dependancy_thread(spreadsheet_clone);
+    
     let mut connections = Vec::new();
     loop {
         match manager.accept_new_connection() {
