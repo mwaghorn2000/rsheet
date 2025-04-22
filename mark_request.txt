@@ -16,9 +16,9 @@ to receive marks for the Design Questions.
     This makes the orignal implementation better.
 
 ## Question 2:
-src/spreadsheet.rs:261-> Handle of Matrix
-src/spreadsheet.rs:215 -> Matching matrix for sizes
-src/spreadsheet.rs:225 -> Else Statemente where single values are handled
+src/spreadsheet.rs:234-> Handle of Matrix
+src/spreadsheet.rs:217 -> Matching matrix for sizes
+src/spreadsheet.rs:227 -> Else Statemente where single values are handled
 
 Everysingle range of values like A1_A5 or A1_B4, are all matrixes, so instead of handling
 each one individually i instead modified a matrix of values based on the range
@@ -30,26 +30,26 @@ To expand for MatrixLists i would have to add some regex to detect it, then modi
 code such that it can find each matrix. The actual matrix code itself would not need to change.
 
 ## Question 3:
-src/spreadsheet.rs:32
+src/spreadsheet.rs:24
 When i initially attempted coding this assignment, i started with my spread sheet being in an Arc.
 I thought this was sufficient, however when i tried to make a modification to my spreadsheet, i was met 
 with errors because the spreadsheet was not mutable. This was caught early on and immediatly got me to 
 handle a bug which could of appeared much later. Rust-analyser told me that i had to put my spreadsheet in a lock,
 if it was to be mutable, which keeps the spreadsheet safe from race conditions.
 
-src/spreadsheet.rs:59
+src/spreadsheet.rs:61
 The use of channels here. In rust, channels transer ownership meaning the sender can no longer access it, meaning we can avoid 
 data races at compile time since the transference of ownership guarentees the data send will not be written in another thread,
 which could create a data race and undifined behaviour.
 
 ## Question 4:
-src/spreadsheet.rs:36 -> VersionMap
-src/spreadsheet.rs:59 -> receieves the version and the CellIdentifier
+src/spreadsheet.rs:38 -> VersionMap
+src/spreadsheet.rs:61 -> receieves the version and the CellIdentifier
 src/spreadsheet.rs:69 -> When updating dependancies the Cell we are updating is the same version.
-src/spreadsheet.rs:93 -> During set command increment the version and then get a copy to it.
-src/spreadsheet.rs:102 -> get a lock of the version map.
-src/spreadsheet.rs:103 -> We get the version of the cell we are setting.
-src/spreadsheet.rs:104 -> Checks current version with initial version.
+src/spreadsheet.rs:95 -> During set command increment the version and then get a copy to it.
+src/spreadsheet.rs:104 -> get a lock of the version map.
+src/spreadsheet.rs:105 -> We get the version of the cell we are setting.
+src/spreadsheet.rs:106 -> Checks current version with initial version.
 
 When we set, the thread gets the current version as a read. Since the version map is behind a RwLock,there must be 
 no thread reading or writing to the version map when this occures. Then when we set the cell we get a read lock 
@@ -60,9 +60,9 @@ The SpreadSheetHandler.send() fn is called which takes in the command. It then w
 command. From here we increment the version number for the cell, and get a copy. We then evaluate the cell value.
 During evaluation we update all the dependancies in the dependancy graph. We obtain a read lock of the version map,
 we check the version is valid and then we update the cell based on the expr given. We then go through each cell which depends
-on the one updating and send a &CellIdentifier along with the version of that cell at [src/spreadsheet.rs:141]. The dependancy
+on the one updating and send a &CellIdentifier along with the version of that cell at [src/spreadsheet.rs:143]. The dependancy
 thread recieves it [src:spreadsheet.rs:59], where we then insert that value based on its original expr. When we insert that value
-the thread signals itself in the same insert fn from [src/spreadsheet:141]. 
+the thread signals itself in the same insert fn from [src/spreadsheet:143]. 
 
 # Questions to the Marker (OPTIONAL)
 
