@@ -1,13 +1,12 @@
-mod spreadsheet {
-    pub mod spreadsheet;
-}
+mod spreadsheet;
+
+use spreadsheet::SpreadSheetHandler;
 
 use rsheet_lib::command::Command;
 use rsheet_lib::connect::{
     Connection, Manager, ReadMessageResult, Reader, WriteMessageResult, Writer,
 };
 use rsheet_lib::replies::Reply;
-use spreadsheet::spreadsheet::SpreadSheetHandler;
 
 use std::error::Error;
 use std::sync::Arc;
@@ -24,16 +23,11 @@ where
     SpreadSheetHandler::start_dependancy_thread(spreadsheet_clone);
     
     let mut connections = Vec::new();
-    loop {
-        match manager.accept_new_connection() {
-            Connection::NewConnection { reader, writer } => {
-                let spreadsheet_clone = Arc::clone(&spreadsheet);
-                connections.push(std::thread::spawn(move || {
-                    handle_connection(reader, writer, spreadsheet_clone);
-                }));
-            }
-            Connection::NoMoreConnections => break,
-        };
+    while let Connection::NewConnection { reader, writer } = manager.accept_new_connection() {
+        let spreadsheet_clone = Arc::clone(&spreadsheet);
+        connections.push(std::thread::spawn(move || {
+            handle_connection(reader, writer, spreadsheet_clone);
+        }));
     }
 
     for handle in connections {

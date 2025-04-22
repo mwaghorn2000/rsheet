@@ -14,6 +14,8 @@ use rsheet_lib::{
     replies::Reply,
 };
 
+type DependancySender = Option<Sender<(CellIdentifier, u64)>>;
+
 /// Error message used for when a Cell relies on another cell which
 /// results in an Error
 const DEPENDANCY_ERROR: &str = "Cell relies on an Error Value";
@@ -22,7 +24,7 @@ pub struct SpreadSheetHandler {
     spread_sheet: Arc<RwLock<HashMap<CellIdentifier, CellValue>>>,
     dependancy_graph: Arc<RwLock<HashMap<CellIdentifier, HashSet<CellIdentifier>>>>,
     cell_exprs: Arc<RwLock<HashMap<CellIdentifier, String>>>,
-    dependancy_sender: Arc<Mutex<Option<Sender<(CellIdentifier, u64)>>>>,
+    dependancy_sender: Arc<Mutex<DependancySender>>,
     version_map: Arc<RwLock<HashMap<CellIdentifier, u64>>>,
 }
 
@@ -131,7 +133,7 @@ impl SpreadSheetHandler {
 
         if let Some(dependancies) = self.dependancy_graph.read().unwrap().get(cell_identifier) {
             for d in dependancies {
-                let version = self.version_map.read().unwrap().get(&d).unwrap_or(&0).clone();
+                let version = *self.version_map.read().unwrap().get(d).unwrap_or(&0);
                 let sender = {
                     let guard = self.dependancy_sender.lock().unwrap();
                     guard.clone()
