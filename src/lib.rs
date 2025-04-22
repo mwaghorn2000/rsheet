@@ -21,7 +21,7 @@ where
     let spreadsheet = Arc::new(SpreadSheetHandler::new());
     let spreadsheet_clone = Arc::clone(&spreadsheet);
     SpreadSheetHandler::start_dependancy_thread(spreadsheet_clone);
-    
+
     let mut connections = Vec::new();
     while let Connection::NewConnection { reader, writer } = manager.accept_new_connection() {
         let spreadsheet_clone = Arc::clone(&spreadsheet);

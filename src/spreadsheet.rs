@@ -1,8 +1,10 @@
 use std::{
     collections::{HashMap, HashSet},
     sync::{
-        mpsc::{self, Sender}, Arc, Mutex, RwLock
-    }, thread,
+        mpsc::{self, Sender},
+        Arc, Mutex, RwLock,
+    },
+    thread,
 };
 
 use regex::Regex;
@@ -39,7 +41,7 @@ impl SpreadSheetHandler {
         }
     }
 
-    /// Starts a dependancy thread which will handle all dependancies through the 
+    /// Starts a dependancy thread which will handle all dependancies through the
     /// dependancy_sender. Only one thread may be spawned.
     pub fn start_dependancy_thread(this: Arc<Self>) {
         let thread_exists = {
@@ -47,14 +49,16 @@ impl SpreadSheetHandler {
             guard.is_some()
         };
 
-        if thread_exists { return; }
+        if thread_exists {
+            return;
+        }
 
         let (tx, rx) = mpsc::channel::<(CellIdentifier, u64)>();
         {
             let mut sender = this.dependancy_sender.lock().unwrap();
             *sender = Some(tx);
         }
-        
+
         let spread_sheet_clone = Arc::clone(&this);
 
         thread::spawn(move || {
@@ -63,7 +67,7 @@ impl SpreadSheetHandler {
                     let cell_expr = spread_sheet_clone.cell_exprs.read().unwrap();
                     cell_expr.get(&cell).unwrap().clone()
                 };
-        
+
                 let value = spread_sheet_clone.evaluate(expr, &cell);
 
                 let versions = this.version_map.read().unwrap();
@@ -116,7 +120,11 @@ impl SpreadSheetHandler {
         }
     }
 
-    fn insert(&self, cell_identifier: &CellIdentifier, cell_value: Result<CellValue, CellExprEvalError>) {
+    fn insert(
+        &self,
+        cell_identifier: &CellIdentifier,
+        cell_value: Result<CellValue, CellExprEvalError>,
+    ) {
         match cell_value {
             Ok(v) => {
                 let mut sheet = self.spread_sheet.write().unwrap();
@@ -144,7 +152,6 @@ impl SpreadSheetHandler {
                 }
             }
         }
-        
     }
 
     fn find(&self, cell_identifier: &CellIdentifier) -> Result<CellValue, CellExprEvalError> {
@@ -162,7 +169,11 @@ impl SpreadSheetHandler {
         }
     }
 
-    fn evaluate(&self, cell_expr: String, cell: &CellIdentifier) -> Result<CellValue, CellExprEvalError> {
+    fn evaluate(
+        &self,
+        cell_expr: String,
+        cell: &CellIdentifier,
+    ) -> Result<CellValue, CellExprEvalError> {
         let cell_expr = CellExpr::new(&cell_expr);
         let arguments = cell_expr.find_variable_names();
         let sheet = self.spread_sheet.read().unwrap();
@@ -191,13 +202,19 @@ fn format_cell_name(cell: &CellIdentifier) -> String {
     format!("{}{}", column_number_to_name(cell.col), cell.row + 1)
 }
 
-fn create_arg_map(args: Vec<String>, spreadsheet: &HashMap<CellIdentifier, CellValue>) -> HashMap<String, CellArgument> {
+fn create_arg_map(
+    args: Vec<String>,
+    spreadsheet: &HashMap<CellIdentifier, CellValue>,
+) -> HashMap<String, CellArgument> {
     args.iter()
         .map(|a| (a.clone(), string_arg_to_cell_arg(a.clone(), spreadsheet)))
         .collect::<HashMap<String, CellArgument>>()
 }
 
-fn string_arg_to_cell_arg(arg: String, spreadsheet: &HashMap<CellIdentifier, CellValue>) -> CellArgument {
+fn string_arg_to_cell_arg(
+    arg: String,
+    spreadsheet: &HashMap<CellIdentifier, CellValue>,
+) -> CellArgument {
     if arg.contains("_") {
         let re = Regex::new(r"([A-Z]+)([1-9][0-9]*)_([A-Z]+)([1-9][0-9]*)").unwrap();
         if let Some(captures) = re.captures(arg.as_str()) {
@@ -206,13 +223,8 @@ fn string_arg_to_cell_arg(arg: String, spreadsheet: &HashMap<CellIdentifier, Cel
             let second_col = &captures[3];
             let second_row = &captures[4];
 
-            let matrix = create_cell_arg_matrix(
-                first_col,
-                first_row,
-                second_col,
-                second_row,
-                spreadsheet,
-            );
+            let matrix =
+                create_cell_arg_matrix(first_col, first_row, second_col, second_row, spreadsheet);
 
             match (matrix.len(), matrix[0].len()) {
                 (1, 1) => CellArgument::Value(matrix[0][0].clone()),
@@ -226,7 +238,10 @@ fn string_arg_to_cell_arg(arg: String, spreadsheet: &HashMap<CellIdentifier, Cel
         }
     } else {
         let cell_id: CellIdentifier = arg.parse().unwrap();
-        let value = spreadsheet.get(&cell_id).cloned().unwrap_or(CellValue::None);
+        let value = spreadsheet
+            .get(&cell_id)
+            .cloned()
+            .unwrap_or(CellValue::None);
         CellArgument::Value(value)
     }
 }
