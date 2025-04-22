@@ -138,7 +138,7 @@ impl SpreadSheetHandler {
                 };
 
                 if let Some(sender) = sender {
-                    let _ = sender.send((d.clone(), version.clone()));
+                    let _ = sender.send((*d, version));
                 }
             }
         }
@@ -153,7 +153,7 @@ impl SpreadSheetHandler {
             .clone();
 
         match value {
-            CellValue::Error(e) if e == DEPENDANCY_ERROR.to_string() => {
+            CellValue::Error(e) if e == *DEPENDANCY_ERROR => {
                 Err(CellExprEvalError::VariableDependsOnError)
             }
             _ => Ok(value),
@@ -176,7 +176,7 @@ impl SpreadSheetHandler {
 
             for arg in arguments {
                 for id in extract_cell_identifiers_from_arg(arg) {
-                    dg.entry(id).or_insert_with(HashSet::new).insert(*cell);
+                    dg.entry(id).or_default().insert(*cell);
                 }
             }
         }
@@ -203,22 +203,20 @@ fn string_arg_to_cell_arg(arg: String, spreadsheet: &HashMap<CellIdentifier, Cel
             let first_row = &captures[2];
             let second_col = &captures[3];
             let second_row = &captures[4];
-            if first_col == second_col || first_row == second_row {
-                return create_cell_arg_vec(
-                    first_col,
-                    first_row,
-                    second_col,
-                    second_row,
-                    spreadsheet,
-                );
-            } else {
-                return create_cell_arg_matrix(
-                    first_col,
-                    first_row,
-                    second_col,
-                    second_row,
-                    spreadsheet,
-                );
+
+            let matrix = create_cell_arg_matrix(
+                first_col,
+                first_row,
+                second_col,
+                second_row,
+                spreadsheet,
+            );
+
+            match (matrix.len(), matrix[0].len()) {
+                (1, 1) => CellArgument::Value(matrix[0][0].clone()),
+                (1, _) => CellArgument::Vector(matrix[0].clone()),
+                (_, 1) => CellArgument::Vector(matrix.iter().map(|row| row[0].clone()).collect()),
+                _ => CellArgument::Matrix(matrix),
             }
         } else {
             // This should be caught by the parser
@@ -226,42 +224,39 @@ fn string_arg_to_cell_arg(arg: String, spreadsheet: &HashMap<CellIdentifier, Cel
         }
     } else {
         let cell_id: CellIdentifier = arg.parse().unwrap();
-        let value = match spreadsheet.get(&cell_id) {
-            Some(cell_value) => cell_value.clone(),
-            None => CellValue::None,
-        };
-        return CellArgument::Value(value);
+        let value = spreadsheet.get(&cell_id).cloned().unwrap_or(CellValue::None);
+        CellArgument::Value(value)
     }
 }
 
-fn create_cell_arg_vec(
-    first_col: &str,
-    first_row: &str,
-    second_col: &str,
-    second_row: &str,
-    spreadsheet: &HashMap<CellIdentifier, CellValue>,
-) -> CellArgument {
-    let mut result: Vec<CellValue> = Vec::new();
+// fn create_cell_arg_vec(
+//     first_col: &str,
+//     first_row: &str,
+//     second_col: &str,
+//     second_row: &str,
+//     spreadsheet: &HashMap<CellIdentifier, CellValue>,
+// ) -> CellArgument {
+//     let mut result: Vec<CellValue> = Vec::new();
 
-    let start_col = column_name_to_number(first_col);
-    let finish_col = column_name_to_number(second_col);
-    let start_row = first_row.parse::<u32>().unwrap();
-    let finish_row = second_row.parse::<u32>().unwrap();
+//     let start_col = column_name_to_number(first_col);
+//     let finish_col = column_name_to_number(second_col);
+//     let start_row = first_row.parse::<u32>().unwrap();
+//     let finish_row = second_row.parse::<u32>().unwrap();
 
-    for col in start_col..=finish_col {
-        for row in start_row..=finish_row {
-            let row = row - 1;
-            let cell_id = CellIdentifier { col, row };
-            let cell_value = match spreadsheet.get(&cell_id) {
-                Some(cell_value) => cell_value.clone(),
-                None => CellValue::None,
-            };
-            result.push(cell_value);
-        }
-    }
+//     for col in start_col..=finish_col {
+//         for row in start_row..=finish_row {
+//             let row = row - 1;
+//             let cell_id = CellIdentifier { col, row };
+//             let cell_value = match spreadsheet.get(&cell_id) {
+//                 Some(cell_value) => cell_value.clone(),
+//                 None => CellValue::None,
+//             };
+//             result.push(cell_value);
+//         }
+//     }
 
-    CellArgument::Vector(result)
-}
+//     CellArgument::Vector(result)
+// }
 
 fn create_cell_arg_matrix(
     first_col: &str,
@@ -269,7 +264,7 @@ fn create_cell_arg_matrix(
     second_col: &str,
     second_row: &str,
     spreadsheet: &HashMap<CellIdentifier, CellValue>,
-) -> CellArgument {
+) -> Vec<Vec<CellValue>> {
     let mut result: Vec<Vec<CellValue>> = Vec::new();
 
     let start_col = column_name_to_number(first_col);
@@ -291,7 +286,7 @@ fn create_cell_arg_matrix(
         result.push(inner_res);
     }
 
-    CellArgument::Matrix(result)
+    result
 }
 
 fn extract_cell_identifiers_from_arg(arg: String) -> Vec<CellIdentifier> {
