@@ -175,7 +175,7 @@ impl SpreadSheetHandler {
             }
 
             for arg in arguments {
-                for id in extract_cell_identifiers_from_arg(arg) {
+                for id in extract_cell_identifiers_from_arg(&arg) {
                     dg.entry(id).or_default().insert(*cell);
                 }
             }
@@ -229,35 +229,6 @@ fn string_arg_to_cell_arg(arg: String, spreadsheet: &HashMap<CellIdentifier, Cel
     }
 }
 
-// fn create_cell_arg_vec(
-//     first_col: &str,
-//     first_row: &str,
-//     second_col: &str,
-//     second_row: &str,
-//     spreadsheet: &HashMap<CellIdentifier, CellValue>,
-// ) -> CellArgument {
-//     let mut result: Vec<CellValue> = Vec::new();
-
-//     let start_col = column_name_to_number(first_col);
-//     let finish_col = column_name_to_number(second_col);
-//     let start_row = first_row.parse::<u32>().unwrap();
-//     let finish_row = second_row.parse::<u32>().unwrap();
-
-//     for col in start_col..=finish_col {
-//         for row in start_row..=finish_row {
-//             let row = row - 1;
-//             let cell_id = CellIdentifier { col, row };
-//             let cell_value = match spreadsheet.get(&cell_id) {
-//                 Some(cell_value) => cell_value.clone(),
-//                 None => CellValue::None,
-//             };
-//             result.push(cell_value);
-//         }
-//     }
-
-//     CellArgument::Vector(result)
-// }
-
 fn create_cell_arg_matrix(
     first_col: &str,
     first_row: &str,
@@ -289,80 +260,37 @@ fn create_cell_arg_matrix(
     result
 }
 
-fn extract_cell_identifiers_from_arg(arg: String) -> Vec<CellIdentifier> {
-    if arg.contains("_") {
-        let re = Regex::new(r"([A-Z]+)([1-9][0-9]*)_([A-Z]+)([1-9][0-9]*)").unwrap();
-        if let Some(captures) = re.captures(arg.as_str()) {
-            let first_col = &captures[1];
-            let first_row = &captures[2];
-            let second_col = &captures[3];
-            let second_row = &captures[4];
+fn extract_cell_identifiers_from_arg(arg: &str) -> Vec<CellIdentifier> {
+    if let Some(captures) = Regex::new(r"([A-Z]+)([1-9][0-9]*)_([A-Z]+)([1-9][0-9]*)")
+        .unwrap()
+        .captures(arg)
+    {
+        let first_col = &captures[1];
+        let first_row = &captures[2];
+        let second_col = &captures[3];
+        let second_row = &captures[4];
 
-            if first_col == second_col || first_row == second_row {
-                return get_cell_identifier_vector(first_col, first_row, second_col, second_row);
-            } else {
-                return get_cell_identifier_matrix(first_col, first_row, second_col, second_row)
-                    .into_iter()
-                    .flatten()
-                    .collect();
-            }
-        } else {
-            panic!("Invalid range format in argument: {}", arg);
-        }
-    } else {
-        let cell_id: CellIdentifier = arg.parse().unwrap();
-        vec![cell_id]
-    }
-}
-
-fn get_cell_identifier_matrix(
-    first_col: &str,
-    first_row: &str,
-    second_col: &str,
-    second_row: &str,
-) -> Vec<Vec<CellIdentifier>> {
-    let mut result: Vec<Vec<CellIdentifier>> = Vec::new();
-
-    let start_col = column_name_to_number(first_col);
-    let finish_col = column_name_to_number(second_col);
-    let start_row = first_row.parse::<u32>().unwrap();
-    let finish_row = second_row.parse::<u32>().unwrap();
-
-    for row in start_row..=finish_row {
-        let mut inner_row: Vec<CellIdentifier> = Vec::new();
-        let row_index = row - 1;
-        for col in start_col..=finish_col {
-            inner_row.push(CellIdentifier {
-                col,
-                row: row_index,
-            });
-        }
-        result.push(inner_row);
+        return extract_range(first_col, first_row, second_col, second_row);
     }
 
-    result
+    vec![arg.parse::<CellIdentifier>().unwrap()]
 }
 
-fn get_cell_identifier_vector(
+fn extract_range(
     first_col: &str,
     first_row: &str,
     second_col: &str,
     second_row: &str,
 ) -> Vec<CellIdentifier> {
-    let mut result: Vec<CellIdentifier> = Vec::new();
-
     let start_col = column_name_to_number(first_col);
-    let finish_col = column_name_to_number(second_col);
-    let start_row = first_row.parse::<u32>().unwrap();
-    let finish_row = second_row.parse::<u32>().unwrap();
+    let end_col = column_name_to_number(second_col);
+    let start_row = first_row.parse::<u32>().unwrap() - 1;
+    let end_row = second_row.parse::<u32>().unwrap() - 1;
 
-    for col in start_col..=finish_col {
-        for row in start_row..=finish_row {
-            let row_index = row - 1;
-            result.push(CellIdentifier {
-                col,
-                row: row_index,
-            });
+    let mut result = Vec::new();
+    for row in start_row..=end_row {
+        for col in start_col..=end_col {
+            result.push(CellIdentifier { col, row });
         }
     }
 
