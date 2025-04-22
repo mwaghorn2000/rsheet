@@ -98,7 +98,7 @@ impl SpreadSheetHandler {
             } => {
                 let expected_version = {
                     let mut versions = self.version_map.write().unwrap();
-                    let v = versions.entry(cell_identifier.clone()).or_insert(0);
+                    let v = versions.entry(cell_identifier).or_insert(0);
                     *v += 1;
                     *v
                 };
